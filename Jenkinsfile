@@ -3,17 +3,29 @@ pipeline {
 
     environment {
         AWS_REGION = 'us-east-1'
-        AWS_ACCOUNT_ID = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
         PROJECT_NAME = 'hello-app'
         ENVIRONMENT = 'dev'
         ECR_REPO_NAME = "${PROJECT_NAME}-${ENVIRONMENT}"
         ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
         ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
         IMAGE_TAG = "${BUILD_NUMBER}"
-        ECR_REPOSITORY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
     }
 
     stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        env.ECR_REPOSITORY = "${accountId}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                        echo "AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "ECR Repository: ${env.ECR_REPOSITORY}"
+                    }
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 echo 'Checking out code from GitHub...'
@@ -123,8 +135,10 @@ pipeline {
             )
         }
         always {
-            echo 'Cleaning up...'
-            sh 'docker system prune -f'
+            script {
+                echo 'Cleaning up...'
+                sh 'docker system prune -f'
+            }
         }
     }
 }
