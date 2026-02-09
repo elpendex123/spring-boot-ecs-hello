@@ -4,9 +4,11 @@ pipeline {
     environment {
         AWS_REGION = 'us-east-1'
         AWS_ACCOUNT_ID = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
-        ECR_REPO_NAME = 'hello-app-dev'
-        ECS_CLUSTER = 'hello-app-dev-cluster'
-        ECS_SERVICE = 'hello-app-dev-service'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECR_REPO_NAME = "${PROJECT_NAME}-${ENVIRONMENT}"
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
         IMAGE_TAG = "${BUILD_NUMBER}"
         ECR_REPOSITORY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
     }
