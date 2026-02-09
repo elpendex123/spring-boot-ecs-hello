@@ -31,7 +31,7 @@ variable "availability_zones" {
 variable "container_port" {
   description = "Container port"
   type        = number
-  default     = 8080
+  default     = 8081
 }
 
 variable "desired_count" {

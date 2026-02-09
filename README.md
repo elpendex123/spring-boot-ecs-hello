@@ -101,22 +101,22 @@ Expected output: Successful build with all tests passing.
 ./gradlew bootRun
 ```
 
-The application will start on `http://localhost:8080`.
+The application will start on `http://localhost:8081`.
 
 ### Test the API
 
 ```bash
 # Health check
-curl http://localhost:8080/
+curl http://localhost:8081/
 
 # Hello endpoint
-curl http://localhost:8080/hello
+curl http://localhost:8081/hello
 
 # With name parameter
-curl http://localhost:8080/hello?name=Enrique
+curl http://localhost:8081/hello?name=Enrique
 
 # Spring Boot actuator
-curl http://localhost:8080/actuator/health
+curl http://localhost:8081/actuator/health
 ```
 
 ### Run Unit Tests
@@ -136,10 +136,10 @@ docker build -t hello-app:local .
 ### Run Container Locally
 
 ```bash
-docker run -d -p 8080:8080 --name hello-app-local hello-app:local
+docker run -d -p 8081:8081 --name hello-app-local hello-app:local
 
 # Test
-curl http://localhost:8080/hello
+curl http://localhost:8081/hello
 
 # View logs
 docker logs hello-app-local
