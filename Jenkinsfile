@@ -55,10 +55,10 @@ pipeline {
         stage('Docker Build') {
             steps {
                 echo 'Building Docker image...'
-                script {
-                    docker.build("${ECR_REPO_NAME}:${IMAGE_TAG}")
-                    docker.tag("${ECR_REPO_NAME}:${IMAGE_TAG}", "${ECR_REPO_NAME}:latest")
-                }
+                sh '''
+                    docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ECR_REPO_NAME}:latest
+                '''
             }
         }
 
