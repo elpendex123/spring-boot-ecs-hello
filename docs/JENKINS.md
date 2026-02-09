@@ -105,20 +105,29 @@ aws iam create-access-key --user-name jenkins-ecs-deploy
 
 ### Verify Credentials
 
-1. Create a new pipeline job
-2. In Pipeline section, add this test stage:
+1. Create a new pipeline job named `test-aws-credentials`
+2. In **Pipeline** section, select **Pipeline script** (not from SCM)
+3. Paste this complete pipeline code:
 ```groovy
-stage('Test AWS Credentials') {
-    steps {
-        script {
-            withAWS(credentials: 'aws-credentials', region: 'us-east-1') {
-                sh 'aws sts get-caller-identity'
+pipeline {
+    agent any
+
+    stages {
+        stage('Test AWS Credentials') {
+            steps {
+                script {
+                    withAWS(credentials: 'aws-credentials', region: 'us-east-1') {
+                        sh 'aws sts get-caller-identity'
+                    }
+                }
             }
         }
     }
 }
 ```
-3. Run the job - you should see successful output with your AWS account details
+4. Click **Save**
+5. Click **Build Now**
+6. Check **Console Output** - you should see successful output with your AWS account ID, user ARN, and account number
 
 ---
 
