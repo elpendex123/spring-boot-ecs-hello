@@ -25,7 +25,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
    - **SCM:** Git
    - **Repository URL:** https://github.com/elpendex123/spring-boot-ecs-hello.git
    - **Branch Specifier:** `*/main`
-   - **Script Path:** `Jenkinsfile.build`
+   - **Script Path:** `jenkins/Jenkinsfile.build`
 6. **Save**
 7. Test: **Build Now**
 
@@ -43,7 +43,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
    - **SCM:** Git
    - **Repository URL:** https://github.com/elpendex123/spring-boot-ecs-hello.git
    - **Branch Specifier:** `*/main`
-   - **Script Path:** `Jenkinsfile.deploy`
+   - **Script Path:** `jenkins/Jenkinsfile.deploy`
 6. **Save**
 7. Test: **Build Now** (will ask for IMAGE_TAG parameter)
 
@@ -58,7 +58,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 4. Click **OK**
 5. Configuration:
    - **Definition:** Pipeline script
-   - **Script:** (Copy entire contents of `Jenkinsfile.check-status` and paste here)
+   - **Script:** (Copy entire contents of `jenkins/Jenkinsfile.check-status` and paste here)
 6. **Save**
 7. Test: **Build Now**
 
@@ -73,7 +73,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 4. Click **OK**
 5. Configuration:
    - **Definition:** Pipeline script
-   - **Script:** (Copy entire contents of `Jenkinsfile.service-status` and paste here)
+   - **Script:** (Copy entire contents of `jenkins/Jenkinsfile.service-status` and paste here)
 6. **Save**
 7. Test: **Build Now**
 
@@ -88,7 +88,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 4. Click **OK**
 5. Configuration:
    - **Definition:** Pipeline script
-   - **Script:** (Copy entire contents of `Jenkinsfile.bring-up` and paste here)
+   - **Script:** (Copy entire contents of `jenkins/Jenkinsfile.bring-up` and paste here)
 6. **Save**
 7. Test: **Build Now** (will ask for DESIRED_TASK_COUNT parameter)
 
@@ -103,7 +103,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 4. Click **OK**
 5. Configuration:
    - **Definition:** Pipeline script
-   - **Script:** (Copy entire contents of `Jenkinsfile.bring-down` and paste here)
+   - **Script:** (Copy entire contents of `jenkins/Jenkinsfile.bring-down` and paste here)
 6. **Save**
 7. Test: **Build Now** (will ask for CONFIRM_SHUTDOWN parameter)
 
@@ -118,7 +118,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 4. Click **OK**
 5. Configuration:
    - **Definition:** Pipeline script
-   - **Script:** (Copy entire contents of `Jenkinsfile.teardown` and paste here)
+   - **Script:** (Copy entire contents of `jenkins/Jenkinsfile.teardown` and paste here)
 6. **Save**
 7. Test: **Build Now** (will ask for multiple parameters)
 
@@ -136,7 +136,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
    - **SCM:** Git
    - **Repository URL:** https://github.com/elpendex123/spring-boot-ecs-hello.git
    - **Branch Specifier:** `*/main`
-   - **Script Path:** `Jenkinsfile.deploy-infra`
+   - **Script Path:** `jenkins/Jenkinsfile.deploy-infra`
 6. **Save**
 7. Test: **Build Now**
 
@@ -146,7 +146,7 @@ Quick guide to create all 8 Jenkins jobs in your Jenkins instance.
 
 ### For job 3: check-deployment-status
 
-Open `Jenkinsfile.check-status` in your repository and copy the entire contents.
+Open `jenkins/Jenkinsfile.check-status` in your repository and copy the entire contents.
 
 In Jenkins:
 1. Paste into Script field
@@ -154,7 +154,7 @@ In Jenkins:
 
 ### For job 4: service-status
 
-Open `Jenkinsfile.service-status` in your repository and copy the entire contents.
+Open `jenkins/Jenkinsfile.service-status` in your repository and copy the entire contents.
 
 In Jenkins:
 1. Paste into Script field
@@ -162,7 +162,7 @@ In Jenkins:
 
 ### For job 5: bring-up-services
 
-Open `Jenkinsfile.bring-up` in your repository and copy the entire contents.
+Open `jenkins/Jenkinsfile.bring-up` in your repository and copy the entire contents.
 
 In Jenkins:
 1. Paste into Script field
@@ -170,7 +170,7 @@ In Jenkins:
 
 ### For job 6: bring-down-services
 
-Open `Jenkinsfile.bring-down` in your repository and copy the entire contents.
+Open `jenkins/Jenkinsfile.bring-down` in your repository and copy the entire contents.
 
 In Jenkins:
 1. Paste into Script field
@@ -178,7 +178,7 @@ In Jenkins:
 
 ### For job 7: teardown-infrastructure
 
-Open `Jenkinsfile.teardown` in your repository and copy the entire contents.
+Open `jenkins/Jenkinsfile.teardown` in your repository and copy the entire contents.
 
 In Jenkins:
 1. Paste into Script field

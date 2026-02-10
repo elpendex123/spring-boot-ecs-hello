@@ -114,8 +114,8 @@ pipeline {
                     <p>Image: ${ECR_REPOSITORY}:${IMAGE_TAG}</p>
                     <p>ECS Service updated successfully.</p>
                 """,
-                to: 'enrique.coello@gmail.com',
-                from: 'enrique.coello@gmail.com',
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
                 mimeType: 'text/html'
             )
         }
@@ -129,8 +129,8 @@ pipeline {
                     <p>Console Output: ${env.BUILD_URL}console</p>
                     <p>Please check the logs for details.</p>
                 """,
-                to: 'enrique.coello@gmail.com',
-                from: 'enrique.coello@gmail.com',
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
                 mimeType: 'text/html'
             )
         }
