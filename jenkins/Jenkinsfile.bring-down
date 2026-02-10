@@ -125,19 +125,19 @@ pipeline {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         echo "Waiting for all tasks to stop (up to 2 minutes)..."
                         try {
-                            sh """
+                            sh '''
                                 timeout 120 bash -c '
                                     while true; do
-                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query services[0].runningCount --output text)
-                                        echo "[\\$(date +%H:%M:%S)] Running tasks: \$RUNNING"
-                                        if [ "\$RUNNING" -eq "0" ]; then
+                                        RUNNING=$(aws ecs describe-services --cluster ''' + ECS_CLUSTER + ''' --services ''' + ECS_SERVICE + ''' --region ''' + AWS_REGION + ''' --query services[0].runningCount --output text)
+                                        echo "[$(date +%H:%M:%S)] Running tasks: $RUNNING"
+                                        if [ "$RUNNING" -eq "0" ]; then
                                             echo "✓ All tasks stopped"
                                             break
                                         fi
                                         sleep 3
                                     done
                                 '
-                            """
+                            '''
                         } catch (Exception e) {
                             echo "⚠ Timeout waiting for shutdown"
                             echo "Tasks may still be stopping. Check ECS console for status."
