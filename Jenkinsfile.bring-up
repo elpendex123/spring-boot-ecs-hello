@@ -1,0 +1,223 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
+    }
+
+    parameters {
+        choice(
+            name: 'DESIRED_TASK_COUNT',
+            choices: ['1', '2', '3', '4', '5'],
+            description: 'Select number of tasks to run (defaults to 2)'
+        )
+        booleanParam(
+            name: 'WAIT_FOR_STABLE',
+            defaultValue: true,
+            description: 'Wait for deployment to stabilize'
+        )
+    }
+
+    stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Initialize AWS'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        echo "✓ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "✓ Task Count: ${params.DESIRED_TASK_COUNT}"
+                    }
+                }
+            }
+        }
+
+        stage('Check Current Service Status') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check Current Service Status'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def currentStatus = sh(
+                            script: """
+                                aws ecs describe-services \
+                                    --cluster ${ECS_CLUSTER} \
+                                    --services ${ECS_SERVICE} \
+                                    --region ${AWS_REGION} \
+                                    --query 'services[0].[desiredCount,runningCount,status]' \
+                                    --output text
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        def statusParts = currentStatus.split()
+                        def currentDesired = statusParts[0]
+                        def currentRunning = statusParts[1]
+                        def status = statusParts[2]
+
+                        echo "Current Service Status:"
+                        echo "  Desired Tasks: ${currentDesired}"
+                        echo "  Running Tasks: ${currentRunning}"
+                        echo "  Service Status: ${status}"
+                        echo ""
+                        echo "Will scale service to: ${params.DESIRED_TASK_COUNT} tasks"
+                    }
+                }
+            }
+        }
+
+        stage('Bring Up Services') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Bring Up Services'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        echo "Scaling ECS service to ${params.DESIRED_TASK_COUNT} tasks..."
+                        sh """
+                            aws ecs update-service \
+                                --cluster ${ECS_CLUSTER} \
+                                --service ${ECS_SERVICE} \
+                                --desired-count ${params.DESIRED_TASK_COUNT} \
+                                --region ${AWS_REGION}
+                        """
+                        echo '✓ ECS service update command sent'
+                    }
+                }
+            }
+        }
+
+        stage('Wait for Service') {
+            when {
+                expression { params.WAIT_FOR_STABLE == true }
+            }
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Wait for Service to Stabilize'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        echo "Waiting for ${params.DESIRED_TASK_COUNT} tasks to be running (up to 5 minutes)..."
+                        try {
+                            sh """
+                                timeout 300 bash -c '
+                                    while true; do
+                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].runningCount" --output text)
+                                        DESIRED=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].desiredCount" --output text)
+                                        echo "[$(date +'%H:%M:%S')] Running: \$RUNNING / Desired: \$DESIRED"
+                                        if [ "\$RUNNING" -eq "${params.DESIRED_TASK_COUNT}" ] && [ "\$RUNNING" -eq "\$DESIRED" ]; then
+                                            echo "✓ All tasks running"
+                                            break
+                                        fi
+                                        sleep 5
+                                    done
+                                '
+                            """
+                        } catch (Exception e) {
+                            echo "⚠ Timeout waiting for service to stabilize"
+                            echo "Service may still be starting. Check ECS console for status."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Verify Service is Up') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify Service is Up'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Service Status:"
+                            echo "=================================="
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER} \
+                                --services ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'services[0].[serviceName,status,runningCount,desiredCount]' \
+                                --output table
+
+                            echo ""
+                            echo "Running Tasks:"
+                            echo "=================================="
+                            aws ecs list-tasks \
+                                --cluster ${ECS_CLUSTER} \
+                                --service-name ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'taskArns[]' \
+                                --output text | xargs -I {} aws ecs describe-tasks \
+                                --cluster ${ECS_CLUSTER} \
+                                --tasks {} \
+                                --region ${AWS_REGION} \
+                                --query 'tasks[].[taskArn,lastStatus,launchType]' \
+                                --output table
+
+                            echo ""
+                            echo "✓ Service is now UP"
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✓✓✓ BRING UP SERVICE COMPLETED SUCCESSFULLY ✓✓✓'
+            emailext (
+                subject: "SUCCESS: Bring Up Services Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Bring Up Services - SUCCESS</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Service:</strong> ${ECS_SERVICE}</p>
+                    <p><strong>Cluster:</strong> ${ECS_CLUSTER}</p>
+                    <p><strong>Desired Tasks:</strong> ${params.DESIRED_TASK_COUNT}</p>
+                    <p><strong>Status:</strong> SERVICE UP</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <hr/>
+                    <p><strong>Next Steps:</strong></p>
+                    <ul>
+                        <li>Run 'check-deployment-status' to see full details</li>
+                        <li>Access your application via ALB URL</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        failure {
+            echo '✗✗✗ BRING UP SERVICE FAILED ✗✗✗'
+            emailext (
+                subject: "FAILURE: Bring Up Services Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Bring Up Services - FAILURE</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Service:</strong> ${ECS_SERVICE}</p>
+                    <p><strong>Cluster:</strong> ${ECS_CLUSTER}</p>
+                    <p><strong>Desired Tasks:</strong> ${params.DESIRED_TASK_COUNT}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Console Output:</strong> ${env.BUILD_URL}console</p>
+                    <hr/>
+                    <p>Please check the console output for error details.</p>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+    }
+}

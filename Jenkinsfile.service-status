@@ -1,0 +1,125 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
+    }
+
+    stages {
+        stage('Check Service Status') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'Checking if ECS Service is UP or DOWN'
+                    echo '=========================================='
+
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        try {
+                            // Get desired and running counts
+                            def serviceInfo = sh(
+                                script: """
+                                    aws ecs describe-services \
+                                        --cluster ${ECS_CLUSTER} \
+                                        --services ${ECS_SERVICE} \
+                                        --region ${AWS_REGION} \
+                                        --query 'services[0].[desiredCount,runningCount,status]' \
+                                        --output text
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            def parts = serviceInfo.split()
+                            def desiredCount = parts[0] as Integer
+                            def runningCount = parts[1] as Integer
+                            def status = parts[2]
+
+                            echo ""
+                            echo "Service Status Information:"
+                            echo "=================================="
+                            echo "Service: ${ECS_SERVICE}"
+                            echo "Cluster: ${ECS_CLUSTER}"
+                            echo "Desired Tasks: ${desiredCount}"
+                            echo "Running Tasks: ${runningCount}"
+                            echo "Service Status: ${status}"
+                            echo ""
+
+                            // Determine if service is UP or DOWN
+                            if (status == 'ACTIVE') {
+                                if (desiredCount > 0 && runningCount == desiredCount) {
+                                    echo "✓✓✓ SERVICE STATUS: UP ✓✓✓"
+                                    env.SERVICE_STATUS = "UP"
+                                    env.COLOR = "GREEN"
+                                } else if (desiredCount > 0 && runningCount > 0) {
+                                    echo "⚠⚠⚠ SERVICE STATUS: PARTIAL (${runningCount}/${desiredCount}) ⚠⚠⚠"
+                                    env.SERVICE_STATUS = "PARTIAL"
+                                    env.COLOR = "YELLOW"
+                                } else if (desiredCount == 0) {
+                                    echo "❌❌❌ SERVICE STATUS: DOWN (Desired: 0) ❌❌❌"
+                                    env.SERVICE_STATUS = "DOWN"
+                                    env.COLOR = "RED"
+                                } else {
+                                    echo "❌❌❌ SERVICE STATUS: DOWN (No tasks running) ❌❌❌"
+                                    env.SERVICE_STATUS = "DOWN"
+                                    env.COLOR = "RED"
+                                }
+                            } else {
+                                echo "❌❌❌ SERVICE STATUS: INACTIVE ❌❌❌"
+                                env.SERVICE_STATUS = "INACTIVE"
+                                env.COLOR = "RED"
+                            }
+
+                            echo ""
+                            echo "=================================="
+                            echo "Service Status Summary:"
+                            echo "  Status: ${env.SERVICE_STATUS}"
+                            echo "  Desired Tasks: ${desiredCount}"
+                            echo "  Running Tasks: ${runningCount}"
+                            echo "=================================="
+
+                        } catch (Exception e) {
+                            echo "❌ Error checking service status"
+                            echo "Error: ${e.message}"
+                            echo ""
+                            echo "This usually means:"
+                            echo "  - ECS Cluster does not exist"
+                            echo "  - ECS Service does not exist"
+                            echo "  - Infrastructure has not been deployed yet"
+                            env.SERVICE_STATUS = "UNKNOWN"
+                            env.COLOR = "RED"
+                            error("Failed to check service status")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            emailext (
+                subject: "Service Status Check - ${env.SERVICE_STATUS}",
+                body: """
+                    <h2>ECS Service Status Check</h2>
+                    <p><strong>Service:</strong> ${ECS_SERVICE}</p>
+                    <p><strong>Cluster:</strong> ${ECS_CLUSTER}</p>
+                    <p><strong>Status:</strong> <span style="color:${env.COLOR == 'GREEN' ? 'green' : env.COLOR == 'YELLOW' ? 'orange' : 'red'}"><strong>${env.SERVICE_STATUS}</strong></span></p>
+                    <p><strong>Check Time:</strong> ${new Date()}</p>
+                    <hr/>
+                    <p><strong>Suggested Actions:</strong></p>
+                    <ul>
+                        <li>If DOWN: Run 'bring-up-services' to start the service</li>
+                        <li>If UP: Run 'check-deployment-status' for detailed info</li>
+                        <li>If PARTIAL: Check CloudWatch logs for task failures</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+    }
+}

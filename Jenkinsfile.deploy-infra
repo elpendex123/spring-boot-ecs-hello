@@ -1,0 +1,312 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        TERRAFORM_DIR = 'terraform'
+    }
+
+    parameters {
+        booleanParam(
+            name: 'AUTO_APPROVE',
+            defaultValue: false,
+            description: 'Automatically approve terraform apply (skip manual confirmation)'
+        )
+        booleanParam(
+            name: 'SKIP_PLAN',
+            defaultValue: false,
+            description: 'Skip terraform plan step (faster but less safe)'
+        )
+    }
+
+    stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Initialize AWS'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        echo "✓ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "✓ AWS Region: ${AWS_REGION}"
+                    }
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Checkout'
+                echo '=========================================='
+                echo 'Checking out code from GitHub...'
+                checkout scm
+                echo '✓ Code checked out successfully'
+            }
+        }
+
+        stage('Verify Terraform Files') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify Terraform Files'
+                    echo '=========================================='
+                    sh """
+                        if [ ! -d "${TERRAFORM_DIR}" ]; then
+                            echo "❌ Terraform directory not found: ${TERRAFORM_DIR}"
+                            exit 1
+                        fi
+
+                        if [ ! -f "${TERRAFORM_DIR}/main.tf" ]; then
+                            echo "❌ main.tf not found"
+                            exit 1
+                        fi
+
+                        echo "✓ Terraform directory verified"
+                        echo "✓ Files found:"
+                        ls -la ${TERRAFORM_DIR}/*.tf 2>/dev/null || true
+                    """
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Terraform Init'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            cd ${TERRAFORM_DIR}
+                            echo "Initializing Terraform..."
+                            terraform init
+                            echo "✓ Terraform initialized"
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Format Check') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Terraform Format Check'
+                    echo '=========================================='
+                    sh """
+                        cd ${TERRAFORM_DIR}
+                        echo "Checking Terraform formatting..."
+                        terraform fmt -check -recursive || true
+                        echo "✓ Format check completed"
+                    """
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Terraform Validate'
+                    echo '=========================================='
+                    sh """
+                        cd ${TERRAFORM_DIR}
+                        echo "Validating Terraform configuration..."
+                        terraform validate
+                        echo "✓ Terraform configuration is valid"
+                    """
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            when {
+                expression { !params.SKIP_PLAN }
+            }
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Terraform Plan'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            cd ${TERRAFORM_DIR}
+                            echo "Planning infrastructure deployment..."
+                            terraform plan -out=tfplan
+                            echo ""
+                            echo "✓ Plan created successfully"
+                            echo ""
+                            echo "Plan saved to: tfplan"
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Terraform Apply'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            cd ${TERRAFORM_DIR}
+                            echo "Applying Terraform configuration..."
+
+                            if [ -f "tfplan" ]; then
+                                echo "Applying from saved plan..."
+                                terraform apply tfplan
+                            else
+                                if [ "${params.AUTO_APPROVE}" = "true" ]; then
+                                    echo "Auto-approving (AUTO_APPROVE = true)..."
+                                    terraform apply -auto-approve
+                                else
+                                    echo "Manual approval required (AUTO_APPROVE = false)"
+                                    terraform apply
+                                fi
+                            fi
+
+                            echo ""
+                            echo "✓ Infrastructure deployed successfully"
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Capture Outputs') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Capture Outputs'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            cd ${TERRAFORM_DIR}
+                            echo ""
+                            echo "Terraform Outputs:"
+                            echo "=================================="
+                            terraform output
+
+                            echo ""
+                            echo "Saving outputs to file..."
+                            terraform output > ../terraform-outputs.txt
+                            echo "✓ Outputs saved to: terraform-outputs.txt"
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Verify Infrastructure') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify Infrastructure'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Verifying deployed resources:"
+                            echo "=================================="
+
+                            echo ""
+                            echo "ECS Clusters:"
+                            aws ecs list-clusters --region ${AWS_REGION} --query 'clusterArns' --output table || echo "No clusters found"
+
+                            echo ""
+                            echo "ECR Repositories:"
+                            aws ecr describe-repositories --region ${AWS_REGION} --query 'repositories[*].[repositoryName,repositoryUri,imageSizeInBytes]' --output table || echo "No repositories found"
+
+                            echo ""
+                            echo "Load Balancers:"
+                            aws elbv2 describe-load-balancers --region ${AWS_REGION} --query 'LoadBalancers[*].[LoadBalancerName,DNSName,State.Code]' --output table || echo "No load balancers found"
+
+                            echo ""
+                            echo "✓ Infrastructure verification complete"
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✓✓✓ INFRASTRUCTURE DEPLOYMENT COMPLETED SUCCESSFULLY ✓✓✓'
+            script {
+                sh """
+                    if [ -f "terraform-outputs.txt" ]; then
+                        echo ""
+                        echo "Infrastructure Outputs:"
+                        cat terraform-outputs.txt
+                    fi
+                """
+            }
+            emailext (
+                subject: "SUCCESS: Deploy Infrastructure Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Deploy Infrastructure - SUCCESS</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>AWS Region:</strong> ${AWS_REGION}</p>
+                    <p><strong>Status:</strong> INFRASTRUCTURE DEPLOYED</p>
+                    <hr/>
+                    <p><strong>Resources Created:</strong></p>
+                    <ul>
+                        <li>VPC with public subnets</li>
+                        <li>Application Load Balancer</li>
+                        <li>ECS Cluster (EC2 launch type)</li>
+                        <li>Auto Scaling Group for EC2 instances</li>
+                        <li>ECR Repository</li>
+                        <li>CloudWatch Log Group</li>
+                        <li>IAM Roles and Policies</li>
+                    </ul>
+                    <hr/>
+                    <p><strong>Next Steps:</strong></p>
+                    <ul>
+                        <li>Run 'build-and-push-to-ecr' to build and push Docker image</li>
+                        <li>Run 'deploy-to-ecs' to deploy the application</li>
+                        <li>Run 'check-deployment-status' to verify deployment</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        failure {
+            echo '✗✗✗ INFRASTRUCTURE DEPLOYMENT FAILED ✗✗✗'
+            emailext (
+                subject: "FAILURE: Deploy Infrastructure Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Deploy Infrastructure - FAILURE</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Console Output:</strong> ${env.BUILD_URL}console</p>
+                    <p><strong>Status:</strong> FAILED</p>
+                    <hr/>
+                    <p>Please check the console output for error details.</p>
+                    <p><strong>Common Issues:</strong></p>
+                    <ul>
+                        <li>AWS credentials not configured</li>
+                        <li>Insufficient IAM permissions</li>
+                        <li>Invalid Terraform configuration</li>
+                        <li>AWS resource limits exceeded</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+    }
+}

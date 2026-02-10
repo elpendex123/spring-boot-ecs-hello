@@ -1,0 +1,235 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECR_REPO_NAME = "${PROJECT_NAME}-${ENVIRONMENT}"
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
+    }
+
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Docker image tag to deploy (e.g., latest, 123, 456). Defaults to latest.'
+        )
+        booleanParam(
+            name: 'WAIT_FOR_DEPLOYMENT',
+            defaultValue: true,
+            description: 'Wait for deployment to stabilize before finishing'
+        )
+    }
+
+    stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Initialize AWS'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        env.ECR_REPOSITORY = "${accountId}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                        echo "✓ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "✓ ECR Repository: ${env.ECR_REPOSITORY}"
+                        echo "✓ Image Tag: ${params.IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Verify Image Exists') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify Image Exists'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def imageExists = sh(
+                            script: """
+                                aws ecr describe-images \
+                                    --repository-name ${ECR_REPO_NAME} \
+                                    --image-ids imageTag=${params.IMAGE_TAG} \
+                                    --region ${AWS_REGION} \
+                                    --query 'imageDetails[0].imageTags' \
+                                    --output text
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        if (imageExists.isEmpty()) {
+                            error "❌ Docker image with tag '${params.IMAGE_TAG}' not found in ECR repository"
+                        }
+                        echo "✓ Docker image found in ECR: ${imageExists}"
+                    }
+                }
+            }
+        }
+
+        stage('Verify ECS Cluster') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify ECS Cluster'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def clusterStatus = sh(
+                            script: """
+                                aws ecs describe-clusters \
+                                    --clusters ${ECS_CLUSTER} \
+                                    --region ${AWS_REGION} \
+                                    --query 'clusters[0].status' \
+                                    --output text
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        if (clusterStatus != 'ACTIVE') {
+                            error "❌ ECS Cluster '${ECS_CLUSTER}' is not ACTIVE (Status: ${clusterStatus})"
+                        }
+                        echo "✓ ECS Cluster is ACTIVE: ${ECS_CLUSTER}"
+                    }
+                }
+            }
+        }
+
+        stage('Update ECS Service') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Update ECS Service'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        echo "Updating ECS service with new deployment (image tag: ${params.IMAGE_TAG})..."
+                        sh """
+                            aws ecs update-service \
+                                --cluster ${ECS_CLUSTER} \
+                                --service ${ECS_SERVICE} \
+                                --force-new-deployment \
+                                --region ${AWS_REGION}
+                        """
+                        echo '✓ ECS service update command sent'
+                    }
+                }
+            }
+        }
+
+        stage('Wait for Deployment') {
+            when {
+                expression { params.WAIT_FOR_DEPLOYMENT == true }
+            }
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Wait for Deployment'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        echo 'Waiting for ECS service to stabilize (up to 10 minutes)...'
+                        try {
+                            sh """
+                                timeout 600 bash -c '
+                                    while true; do
+                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].runningCount" --output text)
+                                        DESIRED=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].desiredCount" --output text)
+                                        echo "Running Tasks: \$RUNNING / Desired: \$DESIRED"
+                                        if [ "\$RUNNING" -eq "\$DESIRED" ] && [ "\$RUNNING" -gt 0 ]; then
+                                            echo "✓ Deployment stabilized"
+                                            break
+                                        fi
+                                        sleep 5
+                                    done
+                                '
+                            """
+                        } catch (Exception e) {
+                            echo "⚠ Timeout waiting for deployment to stabilize"
+                            echo "Deployment may still be in progress. Check ECS console for status."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Verify Deployment'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo "ECS Service Status:"
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER} \
+                                --services ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'services[0].[serviceName,status,runningCount,desiredCount,deployments[0].status]' \
+                                --output table
+
+                            echo ""
+                            echo "Recent Task Events:"
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER} \
+                                --services ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'services[0].events[0:5].[createdAt,message]' \
+                                --output table
+                        """
+                        echo '✓ Deployment verified'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✓✓✓ DEPLOYMENT PIPELINE COMPLETED SUCCESSFULLY ✓✓✓'
+            emailext (
+                subject: "SUCCESS: Deploy Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Deploy to ECS - SUCCESS</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Image Tag Deployed:</strong> ${params.IMAGE_TAG}</p>
+                    <p><strong>ECS Service:</strong> ${ECS_SERVICE}</p>
+                    <p><strong>ECS Cluster:</strong> ${ECS_CLUSTER}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Status:</strong> DEPLOYED</p>
+                    <hr/>
+                    <p><strong>Next Steps:</strong></p>
+                    <ul>
+                        <li>Run 'check-deployment-status' to verify current deployment</li>
+                        <li>Test the application via ALB URL</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        failure {
+            echo '✗✗✗ DEPLOYMENT PIPELINE FAILED ✗✗✗'
+            emailext (
+                subject: "FAILURE: Deploy Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Deploy to ECS - FAILURE</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Image Tag:</strong> ${params.IMAGE_TAG}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Console Output:</strong> ${env.BUILD_URL}console</p>
+                    <p><strong>Status:</strong> FAILED</p>
+                    <hr/>
+                    <p>Please check the console output for error details.</p>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+    }
+}

@@ -1,0 +1,173 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECR_REPO_NAME = "${PROJECT_NAME}-${ENVIRONMENT}"
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Initialize AWS'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        env.ECR_REPOSITORY = "${accountId}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                        echo "✓ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "✓ ECR Repository: ${env.ECR_REPOSITORY}"
+                        echo "✓ AWS Region: ${AWS_REGION}"
+                    }
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Checkout'
+                echo '=========================================='
+                echo 'Checking out code from GitHub...'
+                checkout scm
+                echo '✓ Code checked out successfully'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Build'
+                echo '=========================================='
+                echo 'Building Spring Boot application with Gradle...'
+                sh './gradlew clean build'
+                echo '✓ Build completed successfully'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Test'
+                echo '=========================================='
+                echo 'Running unit tests...'
+                sh './gradlew test'
+                echo '✓ All tests passed'
+            }
+            post {
+                always {
+                    junit '**/build/test-results/test/*.xml'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Docker Build'
+                echo '=========================================='
+                echo 'Building Docker image...'
+                sh '''
+                    docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ECR_REPO_NAME}:latest
+                '''
+                echo '✓ Docker image built successfully'
+                sh 'docker images | grep ${ECR_REPO_NAME}'
+            }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                echo '=========================================='
+                echo 'STAGE: Push to ECR'
+                echo '=========================================='
+                script {
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        echo 'Logging in to ECR...'
+                        sh """
+                            aws ecr get-login-password --region ${AWS_REGION} | \
+                            docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        """
+                        echo '✓ ECR login successful'
+
+                        echo 'Tagging and pushing Docker image...'
+                        sh """
+                            docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ECR_REPOSITORY}:${IMAGE_TAG}
+                            docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ECR_REPOSITORY}:latest
+                            docker push ${ECR_REPOSITORY}:${IMAGE_TAG}
+                            docker push ${ECR_REPOSITORY}:latest
+                        """
+                        echo '✓ Docker image pushed to ECR successfully'
+
+                        echo 'Verifying pushed images...'
+                        sh """
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO_NAME} \
+                                --region ${AWS_REGION} \
+                                --query 'imageDetails[*].[imageTag,imageSizeInBytes,imagePushedAt]' \
+                                --output table
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✓✓✓ BUILD AND PUSH PIPELINE COMPLETED SUCCESSFULLY ✓✓✓'
+            emailext (
+                subject: "SUCCESS: Build & Push Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Build and Push to ECR - SUCCESS</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Docker Image:</strong> ${ECR_REPOSITORY}:${IMAGE_TAG}</p>
+                    <p><strong>Latest Tag:</strong> ${ECR_REPOSITORY}:latest</p>
+                    <p><strong>Build Status:</strong> COMPLETED</p>
+                    <hr/>
+                    <p><strong>Next Steps:</strong></p>
+                    <ul>
+                        <li>Run 'check-deployment-status' to verify current deployment</li>
+                        <li>Run 'deploy-to-ecs' to deploy new image to ECS</li>
+                    </ul>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        failure {
+            echo '✗✗✗ BUILD AND PUSH PIPELINE FAILED ✗✗✗'
+            emailext (
+                subject: "FAILURE: Build & Push Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                body: """
+                    <h2>Build and Push to ECR - FAILURE</h2>
+                    <p><strong>Job Name:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                    <p><strong>Build URL:</strong> ${env.BUILD_URL}</p>
+                    <p><strong>Console Output:</strong> ${env.BUILD_URL}console</p>
+                    <p><strong>Status:</strong> FAILED</p>
+                    <hr/>
+                    <p>Please check the console output for error details.</p>
+                """,
+                to: 'kike.ruben.coello@gmail.com',
+                from: 'kike.ruben.coello@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        always {
+            echo 'Cleaning up Docker resources...'
+            sh 'docker system prune -f'
+            echo '✓ Cleanup completed'
+        }
+    }
+}

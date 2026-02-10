@@ -1,0 +1,205 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        PROJECT_NAME = 'hello-app'
+        ENVIRONMENT = 'dev'
+        ECR_REPO_NAME = "${PROJECT_NAME}-${ENVIRONMENT}"
+        ECS_CLUSTER = "${PROJECT_NAME}-${ENVIRONMENT}-cluster"
+        ECS_SERVICE = "${PROJECT_NAME}-${ENVIRONMENT}-service"
+    }
+
+    stages {
+        stage('Initialize AWS') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Initialize AWS'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def accountId = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                        env.AWS_ACCOUNT_ID = accountId
+                        env.ECR_REPOSITORY = "${accountId}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                        echo "✓ AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                        echo "✓ ECR Repository: ${env.ECR_REPOSITORY}"
+                    }
+                }
+            }
+        }
+
+        stage('Check ECS Service Status') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check ECS Service Status'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "ECS Cluster: ${ECS_CLUSTER}"
+                            echo "=================================="
+                            aws ecs describe-clusters \
+                                --clusters ${ECS_CLUSTER} \
+                                --region ${AWS_REGION} \
+                                --query 'clusters[0].[clusterName,status,activeServicesCount,runningTasksCount,registeredContainerInstancesCount]' \
+                                --output table
+
+                            echo ""
+                            echo "ECS Service: ${ECS_SERVICE}"
+                            echo "=================================="
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER} \
+                                --services ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'services[0].[serviceName,status,runningCount,desiredCount,deployments[*].status,deployments[*].taskDefinition]' \
+                                --output table
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Check ALB Status') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check ALB Status'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Application Load Balancers:"
+                            echo "=================================="
+                            aws elbv2 describe-load-balancers \
+                                --region ${AWS_REGION} \
+                                --query "LoadBalancers[?contains(LoadBalancerName, '${PROJECT_NAME}')].{Name:LoadBalancerName,DNS:DNSName,Status:State.Code,Type:Type}" \
+                                --output table
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Check Target Group Health') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check Target Group Health'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Target Groups:"
+                            echo "=================================="
+                            aws elbv2 describe-target-groups \
+                                --region ${AWS_REGION} \
+                                --query "TargetGroups[?contains(TargetGroupName, '${PROJECT_NAME}')].{Name:TargetGroupName,Port:Port,Protocol:Protocol,VpcId:VpcId}" \
+                                --output table
+
+                            echo ""
+                            echo "Target Health Status:"
+                            echo "=================================="
+                            TARGET_GROUPS=\$(aws elbv2 describe-target-groups \
+                                --region ${AWS_REGION} \
+                                --query "TargetGroups[?contains(TargetGroupName, '${PROJECT_NAME}')].TargetGroupArn" \
+                                --output text)
+
+                            for TG in \$TARGET_GROUPS; do
+                                echo ""
+                                echo "Target Group: \$TG"
+                                aws elbv2 describe-target-health \
+                                    --target-group-arn \$TG \
+                                    --region ${AWS_REGION} \
+                                    --query 'TargetHealthDescriptions[*].[Target.Id,TargetHealth.State,TargetHealth.Description]' \
+                                    --output table
+                            done
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Check ECR Images') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check ECR Images'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "ECR Repository: ${ECR_REPO_NAME}"
+                            echo "=================================="
+                            aws ecr describe-images \
+                                --repository-name ${ECR_REPO_NAME} \
+                                --region ${AWS_REGION} \
+                                --query 'imageDetails[*].[imageTag,imageSizeInBytes,imagePushedAt,imageScanStatus.status]' \
+                                --output table
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Get Deployment URL') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Get Deployment URL'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Access your application at:"
+                            echo "=================================="
+                            ALB_DNS=\$(aws elbv2 describe-load-balancers \
+                                --region ${AWS_REGION} \
+                                --query "LoadBalancers[?contains(LoadBalancerName, '${PROJECT_NAME}')].DNSName" \
+                                --output text | head -1)
+
+                            if [ -z "\$ALB_DNS" ]; then
+                                echo "⚠ No ALB found. Infrastructure may not be deployed."
+                            else
+                                echo "✓ Application URL: http://\$ALB_DNS/"
+                                echo "✓ API Endpoint:   http://\$ALB_DNS/hello"
+                                echo "✓ Health Check:   http://\$ALB_DNS/actuator/health"
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Check Recent Events') {
+            steps {
+                script {
+                    echo '=========================================='
+                    echo 'STAGE: Check Recent Events'
+                    echo '=========================================='
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        sh """
+                            echo ""
+                            echo "Recent ECS Service Events (last 5):"
+                            echo "=================================="
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER} \
+                                --services ${ECS_SERVICE} \
+                                --region ${AWS_REGION} \
+                                --query 'services[0].events[0:5].[createdAt,message]' \
+                                --output table
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo '=========================================='
+            echo 'Deployment Status Check Complete'
+            echo '=========================================='
+        }
+    }
+}
