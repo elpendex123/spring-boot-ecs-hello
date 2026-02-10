@@ -128,8 +128,8 @@ pipeline {
                             sh """
                                 timeout 120 bash -c '
                                     while true; do
-                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].runningCount" --output text)
-                                        echo "[$(date +'%H:%M:%S')] Running tasks: \$RUNNING"
+                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query services[0].runningCount --output text)
+                                        echo "[\\$(date +%H:%M:%S)] Running tasks: \$RUNNING"
                                         if [ "\$RUNNING" -eq "0" ]; then
                                             echo "✓ All tasks stopped"
                                             break
