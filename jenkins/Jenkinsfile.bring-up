@@ -107,20 +107,20 @@ pipeline {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         echo "Waiting for ${params.DESIRED_TASK_COUNT} tasks to be running (up to 5 minutes)..."
                         try {
-                            sh """
+                            sh '''
                                 timeout 300 bash -c '
                                     while true; do
-                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].runningCount" --output text)
-                                        DESIRED=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].desiredCount" --output text)
-                                        echo "[$(date +'%H:%M:%S')] Running: \$RUNNING / Desired: \$DESIRED"
-                                        if [ "\$RUNNING" -eq "${params.DESIRED_TASK_COUNT}" ] && [ "\$RUNNING" -eq "\$DESIRED" ]; then
+                                        RUNNING=$(aws ecs describe-services --cluster ''' + ECS_CLUSTER + ''' --services ''' + ECS_SERVICE + ''' --region ''' + AWS_REGION + ''' --query services[0].runningCount --output text)
+                                        DESIRED=$(aws ecs describe-services --cluster ''' + ECS_CLUSTER + ''' --services ''' + ECS_SERVICE + ''' --region ''' + AWS_REGION + ''' --query services[0].desiredCount --output text)
+                                        echo "[$(date +%H:%M:%S)] Running: $RUNNING / Desired: $DESIRED"
+                                        if [ "$RUNNING" -eq "''' + params.DESIRED_TASK_COUNT + '''" ] && [ "$RUNNING" -eq "$DESIRED" ]; then
                                             echo "✓ All tasks running"
                                             break
                                         fi
                                         sleep 5
                                     done
                                 '
-                            """
+                            '''
                         } catch (Exception e) {
                             echo "⚠ Timeout waiting for service to stabilize"
                             echo "Service may still be starting. Check ECS console for status."
