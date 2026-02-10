@@ -94,28 +94,28 @@ pipeline {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         try {
                             echo "Scaling ECS service to 0 tasks..."
-                            sh """
+                            sh '''
                                 aws ecs update-service \
-                                    --cluster ${ECS_CLUSTER} \
-                                    --service ${ECS_SERVICE} \
+                                    --cluster ''' + ECS_CLUSTER + ''' \
+                                    --service ''' + ECS_SERVICE + ''' \
                                     --desired-count 0 \
-                                    --region ${AWS_REGION}
-                            """
+                                    --region ''' + AWS_REGION + '''
+                            '''
                             echo '✓ ECS service scaled down'
 
                             echo "Waiting for tasks to stop (up to 2 minutes)..."
-                            sh """
+                            sh '''
                                 timeout 120 bash -c '
                                     while true; do
-                                        RUNNING=\$(aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --region ${AWS_REGION} --query "services[0].runningCount" --output text)
-                                        echo "Running tasks: \$RUNNING"
-                                        if [ "\$RUNNING" -eq "0" ]; then
+                                        RUNNING=$(aws ecs describe-services --cluster ''' + ECS_CLUSTER + ''' --services ''' + ECS_SERVICE + ''' --region ''' + AWS_REGION + ''' --query services[0].runningCount --output text)
+                                        echo "Running tasks: $RUNNING"
+                                        if [ "$RUNNING" -eq "0" ]; then
                                             break
                                         fi
                                         sleep 3
                                     done
                                 ' || true
-                            """
+                            '''
                             echo '✓ All ECS tasks stopped'
                         } catch (Exception e) {
                             echo "⚠ Could not scale down ECS service: ${e.message}"
@@ -138,28 +138,28 @@ pipeline {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         try {
                             echo "Deleting all images from ECR repository..."
-                            sh """
+                            sh '''
                                 # Get all image tags
-                                IMAGE_TAGS=\$(aws ecr describe-images \
-                                    --repository-name ${PROJECT_NAME}-${ENVIRONMENT} \
-                                    --region ${AWS_REGION} \
-                                    --query 'imageDetails[*].imageTags[0]' \
+                                IMAGE_TAGS=$(aws ecr describe-images \
+                                    --repository-name ''' + PROJECT_NAME + '''-''' + ENVIRONMENT + ''' \
+                                    --region ''' + AWS_REGION + ''' \
+                                    --query imageDetails[*].imageTags[0] \
                                     --output text)
 
-                                if [ -z "\$IMAGE_TAGS" ]; then
+                                if [ -z "$IMAGE_TAGS" ]; then
                                     echo "No images found in ECR"
                                 else
-                                    echo "Found images: \$IMAGE_TAGS"
-                                    for TAG in \$IMAGE_TAGS; do
-                                        echo "Deleting image tag: \$TAG"
+                                    echo "Found images: $IMAGE_TAGS"
+                                    for TAG in $IMAGE_TAGS; do
+                                        echo "Deleting image tag: $TAG"
                                         aws ecr batch-delete-image \
-                                            --repository-name ${PROJECT_NAME}-${ENVIRONMENT} \
-                                            --image-ids imageTag=\$TAG \
-                                            --region ${AWS_REGION}
+                                            --repository-name ''' + PROJECT_NAME + '''-''' + ENVIRONMENT + ''' \
+                                            --image-ids imageTag=$TAG \
+                                            --region ''' + AWS_REGION + '''
                                     done
-                                    echo '✓ All ECR images deleted'
+                                    echo "✓ All ECR images deleted"
                                 fi
-                            """
+                            '''
                         } catch (Exception e) {
                             echo "⚠ Could not delete ECR images: ${e.message}"
                             echo "Continuing with teardown..."
@@ -205,8 +205,8 @@ pipeline {
                     echo '=========================================='
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         try {
-                            sh """
-                                cd ${TERRAFORM_DIR}
+                            sh '''
+                                cd ''' + TERRAFORM_DIR + '''
 
                                 echo "Checking Terraform state..."
                                 if [ -f terraform.tfstate ]; then
@@ -233,7 +233,7 @@ pipeline {
 
                                 echo ""
                                 echo "✓ Infrastructure destroyed successfully"
-                            """
+                            '''
                         } catch (Exception e) {
                             error "Failed to destroy infrastructure: ${e.message}"
                         }
@@ -249,26 +249,26 @@ pipeline {
                     echo 'STAGE: Verify Destruction'
                     echo '=========================================='
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
-                        sh """
+                        sh '''
                             echo ""
                             echo "Verifying resource cleanup:"
                             echo "=================================="
 
                             echo ""
                             echo "ECS Clusters:"
-                            aws ecs list-clusters --region ${AWS_REGION} --query 'clusterArns' --output text | grep -c ${PROJECT_NAME} && echo "⚠ Clusters still exist" || echo "✓ All clusters deleted"
+                            aws ecs list-clusters --region ''' + AWS_REGION + ''' --query clusterArns --output text | grep -c ''' + PROJECT_NAME + ''' && echo "⚠ Clusters still exist" || echo "✓ All clusters deleted"
 
                             echo ""
                             echo "ECR Repositories:"
-                            aws ecr describe-repositories --region ${AWS_REGION} --query 'repositories[*].repositoryName' --output text | grep -c ${PROJECT_NAME} && echo "⚠ Repositories still exist" || echo "✓ All repositories deleted"
+                            aws ecr describe-repositories --region ''' + AWS_REGION + ''' --query repositories[*].repositoryName --output text | grep -c ''' + PROJECT_NAME + ''' && echo "⚠ Repositories still exist" || echo "✓ All repositories deleted"
 
                             echo ""
                             echo "Load Balancers:"
-                            aws elbv2 describe-load-balancers --region ${AWS_REGION} --query 'LoadBalancers[*].LoadBalancerName' --output text | grep -c ${PROJECT_NAME} && echo "⚠ Load balancers still exist" || echo "✓ All load balancers deleted"
+                            aws elbv2 describe-load-balancers --region ''' + AWS_REGION + ''' --query LoadBalancers[*].LoadBalancerName --output text | grep -c ''' + PROJECT_NAME + ''' && echo "⚠ Load balancers still exist" || echo "✓ All load balancers deleted"
 
                             echo ""
                             echo "✓ Infrastructure destruction verified"
-                        """
+                        '''
                     }
                 }
             }
