@@ -20,8 +20,9 @@ Thumbs.db
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
-terraform/terraform.tfstate
-terraform/terraform.tfstate.backup
+# State files ARE tracked (needed for Jenkins to run destroy)
+# terraform/terraform.tfstate
+# terraform/terraform.tfstate.backup
 terraform/*.tfvars
 !terraform/terraform.tfvars.example
 
