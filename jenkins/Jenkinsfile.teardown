@@ -208,8 +208,20 @@ pipeline {
                             sh """
                                 cd ${TERRAFORM_DIR}
 
+                                echo "Checking Terraform state..."
+                                if [ -f terraform.tfstate ]; then
+                                    echo "✓ State file found ($(wc -c < terraform.tfstate) bytes)"
+                                else
+                                    echo "⚠ State file not found in workspace"
+                                fi
+
+                                echo ""
                                 echo "Initializing Terraform..."
                                 terraform init
+
+                                echo ""
+                                echo "Listing resources to destroy..."
+                                terraform state list || echo "No resources in state"
 
                                 echo ""
                                 echo "Plan before destroy:"
@@ -220,7 +232,7 @@ pipeline {
                                 terraform destroy -auto-approve
 
                                 echo ""
-                                echo "✓ Infrastructure destroyed"
+                                echo "✓ Infrastructure destroyed successfully"
                             """
                         } catch (Exception e) {
                             error "Failed to destroy infrastructure: ${e.message}"
