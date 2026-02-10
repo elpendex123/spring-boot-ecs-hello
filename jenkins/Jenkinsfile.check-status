@@ -52,7 +52,7 @@ pipeline {
                                 --cluster ${ECS_CLUSTER} \
                                 --services ${ECS_SERVICE} \
                                 --region ${AWS_REGION} \
-                                --query 'services[0].[serviceName,status,runningCount,desiredCount,deployments[*].status,deployments[*].taskDefinition]' \
+                                --query 'services[0].[serviceName,status,runningCount,desiredCount]' \
                                 --output table
                         """
                     }
