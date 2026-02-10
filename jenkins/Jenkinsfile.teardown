@@ -232,8 +232,30 @@ pipeline {
                                 terraform destroy -auto-approve
 
                                 echo ""
-                                echo "✓ Infrastructure destroyed successfully"
+                                echo "✓ Terraform destroy completed"
                             '''
+
+                            echo "Force deleting any lingering resources..."
+                            sh '''
+                                echo "Force deleting load balancers..."
+                                ALB_ARNS=$(aws elbv2 describe-load-balancers --region ''' + AWS_REGION + ''' --query 'LoadBalancers[?contains(LoadBalancerName, `''' + PROJECT_NAME + '''`)].LoadBalancerArn' --output text)
+                                for ARN in $ALB_ARNS; do
+                                    echo "Deleting ALB: $ARN"
+                                    aws elbv2 delete-load-balancer --load-balancer-arn "$ARN" --region ''' + AWS_REGION + ''' 2>/dev/null || echo "Could not delete: $ARN"
+                                done
+
+                                echo "Force deleting target groups..."
+                                TG_ARNS=$(aws elbv2 describe-target-groups --region ''' + AWS_REGION + ''' --query 'TargetGroups[?contains(TargetGroupName, `''' + PROJECT_NAME + '''`)].TargetGroupArn' --output text)
+                                for ARN in $TG_ARNS; do
+                                    echo "Deleting Target Group: $ARN"
+                                    aws elbv2 delete-target-group --target-group-arn "$ARN" --region ''' + AWS_REGION + ''' 2>/dev/null || echo "Could not delete: $ARN"
+                                done
+
+                                echo "✓ Forced cleanup completed"
+                            '''
+
+                            echo ""
+                            echo "✓ Infrastructure destroyed successfully"
                         } catch (Exception e) {
                             error "Failed to destroy infrastructure: ${e.message}"
                         }
