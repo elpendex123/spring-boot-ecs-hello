@@ -70,6 +70,12 @@ echo ""
 # Step 3: Force cleanup of any remaining orphaned resources
 echo "Step 3: Force cleanup of orphaned resources..."
 
+# Deregister ECS Task Definitions
+echo "  Deregistering ECS Task Definitions..."
+for task_def in $(aws ecs list-task-definitions --region "$AWS_REGION" --family-prefix "${PROJECT_FULL}" --query 'taskDefinitionArns' --output text 2>/dev/null || echo ""); do
+    aws ecs deregister-task-definition --task-definition "$task_def" --region "$AWS_REGION" 2>/dev/null || true
+done
+
 # Delete ECS Services (if terraform didn't fully remove them)
 echo "  Deleting ECS Services..."
 ECS_SERVICES=$(aws ecs list-services --cluster "$CLUSTER_NAME" --region "$AWS_REGION" --query 'serviceArns' --output text 2>/dev/null || echo "")
