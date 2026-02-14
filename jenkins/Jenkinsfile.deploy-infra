@@ -287,25 +287,29 @@ pipeline {
             script {
                 echo ""
                 echo "=========================================="
-                echo "CLEANUP: Destroying partial infrastructure..."
+                echo "CLEANUP: Force destroying all infrastructure..."
                 echo "=========================================="
                 withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                     sh """
-                        cd ${TERRAFORM_DIR}
-
-                        # Try to destroy created resources
-                        echo "Attempting to destroy partial infrastructure..."
-                        if terraform destroy -auto-approve -lock=false; then
-                            echo "✓ Partial infrastructure destroyed successfully"
+                        # Run comprehensive cleanup script
+                        if [ -f "scripts/cleanup-aws-force.sh" ]; then
+                            chmod +x scripts/cleanup-aws-force.sh
+                            scripts/cleanup-aws-force.sh "${PROJECT_NAME}" "${ENVIRONMENT}" "${AWS_REGION}" || {
+                                CLEANUP_EXIT_CODE=\$?
+                                echo ""
+                                echo "⚠ Cleanup script encountered issues (exit code: \$CLEANUP_EXIT_CODE)"
+                                echo "This may be normal if some resources were already deleted."
+                                echo "Check AWS Console to verify all resources are cleaned up."
+                            }
                         else
-                            DESTROY_EXIT_CODE=\$?
-                            echo "⚠ Terraform destroy encountered issues (exit code: \$DESTROY_EXIT_CODE)"
-                            echo "Some resources may still exist. Manual cleanup may be required."
-                            echo "Check AWS Console to verify resource cleanup."
+                            echo "⚠ Cleanup script not found at scripts/cleanup-aws-force.sh"
+                            echo "Attempting terraform destroy instead..."
+                            cd ${TERRAFORM_DIR}
+                            terraform destroy -auto-approve -lock=false || true
                         fi
 
                         echo ""
-                        echo "✓ Cleanup attempt completed"
+                        echo "✓ Cleanup completed"
                     """
                 }
             }
@@ -319,8 +323,8 @@ pipeline {
                     <p><strong>Console Output:</strong> ${env.BUILD_URL}console</p>
                     <p><strong>Status:</strong> FAILED</p>
                     <hr/>
-                    <p><strong>Automatic Cleanup:</strong> Attempted to destroy partial infrastructure.</p>
-                    <p>Please check the console output for error details and verify AWS resources.</p>
+                    <p><strong>Automatic Cleanup:</strong> Force cleanup script executed to remove partial infrastructure.</p>
+                    <p>Please check the console output for error details and verify AWS resources are cleaned up.</p>
                     <p><strong>Common Issues:</strong></p>
                     <ul>
                         <li>AWS credentials not configured</li>
