@@ -135,7 +135,7 @@ resource "aws_ecs_task_definition" "app" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      command     = ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:${var.container_port}/actuator/health || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -157,8 +157,9 @@ resource "aws_ecs_service" "app" {
   launch_type     = "EC2"
 
   network_configuration {
-    subnets         = aws_subnet.public[*].id
-    security_groups = [aws_security_group.ecs_tasks.id]
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
   }
 
   load_balancer {
