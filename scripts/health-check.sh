@@ -61,7 +61,7 @@ TG_NAME="${PROJECT_NAME}-${ENVIRONMENT}-tg"
 TG_ARN=$(aws elbv2 describe-target-groups --region "$AWS_REGION" --query "TargetGroups[?TargetGroupName=='$TG_NAME'].TargetGroupArn" --output text 2>/dev/null || echo "")
 
 if [ -n "$TG_ARN" ]; then
-    HEALTHY_TARGETS=$(aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --region "$AWS_REGION" --query "length([TargetHealthDescriptions[?TargetHealth.State=='healthy']])" --output text 2>/dev/null || echo "0")
+    HEALTHY_TARGETS=$(aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --region "$AWS_REGION" --query "length(TargetHealthDescriptions[?TargetHealth.State=='healthy'])" --output text 2>/dev/null || echo "0")
     TOTAL_TARGETS=$(aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --region "$AWS_REGION" --query "length(TargetHealthDescriptions)" --output text 2>/dev/null || echo "0")
 
     if [ "$HEALTHY_TARGETS" -eq "$TOTAL_TARGETS" ] && [ "$TOTAL_TARGETS" -gt 0 ]; then
