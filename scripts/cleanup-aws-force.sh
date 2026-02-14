@@ -82,6 +82,11 @@ done
 echo "  Deleting ECS Cluster..."
 aws ecs delete-cluster --cluster "$CLUSTER_NAME" --region "$AWS_REGION" 2>/dev/null || true
 
+# Delete ECS Capacity Providers
+echo "  Deleting ECS Capacity Providers..."
+CP_NAME="${PROJECT_FULL}-cp"
+aws ecs delete-capacity-provider --capacity-provider "$CP_NAME" --region "$AWS_REGION" 2>/dev/null || true
+
 # Delete Auto Scaling Groups (terminates instances)
 echo "  Deleting Auto Scaling Groups..."
 ASG_NAME="${PROJECT_FULL}-ecs-asg"
