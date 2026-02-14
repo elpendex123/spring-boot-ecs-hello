@@ -157,9 +157,8 @@ resource "aws_ecs_service" "app" {
   launch_type     = "EC2"
 
   network_configuration {
-    subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.ecs_tasks.id]
-    assign_public_ip = true
+    subnets         = aws_subnet.public[*].id
+    security_groups = [aws_security_group.ecs_tasks.id]
   }
 
   load_balancer {
