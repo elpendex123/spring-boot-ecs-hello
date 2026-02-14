@@ -176,9 +176,9 @@ if check_resources "Launch Templates" "aws ec2 describe-launch-templates --regio
 fi
 echo ""
 
-# EC2 Instances (by tag)
-if check_resources "EC2 Instances" "aws ec2 describe-instances --region $AWS_REGION --filters 'Name=tag:Name,Values=*$PROJECT_FULL*' --query 'Reservations[].Instances[].InstanceId' --output text"; then
-    aws ec2 describe-instances --region $AWS_REGION --filters "Name=tag:Name,Values=*$PROJECT_FULL*" --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' '\n' | sed 's/^/  ✗ /'
+# EC2 Instances (only running/stopped, not terminated)
+if check_resources "EC2 Instances" "aws ec2 describe-instances --region $AWS_REGION --filters 'Name=instance-state-name,Values=running,stopped' 'Name=tag:Name,Values=*$PROJECT_FULL*' --query 'Reservations[].Instances[].InstanceId' --output text"; then
+    aws ec2 describe-instances --region $AWS_REGION --filters "Name=instance-state-name,Values=running,stopped" "Name=tag:Name,Values=*$PROJECT_FULL*" --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' '\n' | sed 's/^/  ✗ /'
 fi
 echo ""
 
